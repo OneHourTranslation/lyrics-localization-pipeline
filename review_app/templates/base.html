@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Review{% endblock %} — Lyrics Pipeline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #f0f2f5;
+      --surface:      #ffffff;
+      --nav:          #1e293b;
+      --nav-text:     #e2e8f0;
+      --nav-accent:   #818cf8;
+      --text:         #1e293b;
+      --muted:        #64748b;
+      --border:       #e2e8f0;
+      --accent:       #6366f1;
+      --shadow:       0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── nav ── */
+    .nav {
+      background: var(--nav);
+      height: 56px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 0 rgba(255,255,255,.05);
+    }
+    .nav-brand { color: var(--nav-accent); font-weight: 700; font-size: 15px; text-decoration: none; letter-spacing: .02em; }
+    .nav-link  { color: var(--nav-text); text-decoration: none; font-size: 14px; opacity: .75; }
+    .nav-link:hover { opacity: 1; }
+    .nav-spacer { flex: 1; }
+    .nav-info { color: var(--nav-text); font-size: 12px; opacity: .4; }
+
+    /* ── layout ── */
+    .main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    /* ── card ── */
+    .card { background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); padding: 24px; margin-bottom: 24px; }
+
+    /* ── status badges ── */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 10px; border-radius: 100px;
+      font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .badge-approved { background: #dcfce7; color: #166534; }
+    .badge-pending  { background: #fef9c3; color: #854d0e; }
+    .badge-fixed    { background: #dbeafe; color: #1e40af; }
+    .badge-rejected { background: #fee2e2; color: #991b1b; }
+    .badge-na       { background: #f1f5f9; color: #94a3b8; }
+    .badge-source   { background: #f0f4ff; color: #4338ca; }
+
+    /* ── buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 500;
+      cursor: pointer; border: none; text-decoration: none;
+      transition: filter .15s, transform .1s;
+    }
+    .btn:hover  { filter: brightness(.92); }
+    .btn:active { transform: scale(.98); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-green   { background: #10b981;       color: #fff; }
+    .btn-red     { background: #ef4444;       color: #fff; }
+    .btn-ghost   { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-sm      { padding: 4px 12px; font-size: 13px; }
+
+    /* ── toast ── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #1e293b; color: #fff;
+      padding: 12px 20px; border-radius: 10px; font-size: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.25); z-index: 1000;
+      animation: toastIn .2s ease;
+    }
+    .toast-ok  { border-left: 3px solid #10b981; }
+    .toast-bad { border-left: 3px solid #ef4444; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-brand">▶ Lyrics Review</a>
+  <a href="/" class="nav-link">Dashboard</a>
+  <span class="nav-spacer"></span>
+  <span class="nav-info">Lyrics Pipeline</span>
+</nav>
+
+<div class="main">
+  {% block content %}{% endblock %}
+</div>
+
+{% if request.query_params.get('saved') %}
+  <div class="toast toast-ok" id="_toast">Changes saved.</div>
+{% elif request.query_params.get('msg') == 'approved' %}
+  <div class="toast toast-ok" id="_toast">Song approved ✓</div>
+{% elif request.query_params.get('msg') == 'rejected' %}
+  <div class="toast toast-bad" id="_toast">Song rejected — rerun stage 2 to try the next source.</div>
+{% endif %}
+{% if request.query_params.get('saved') or request.query_params.get('msg') %}
+  <script>setTimeout(function(){ var t=document.getElementById('_toast'); if(t) t.remove(); }, 3500);</script>
+{% endif %}
+
+</body>
+</html>

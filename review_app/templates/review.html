@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+{% block title %}Review — {{ song._folder }}{% endblock %}
+
+{% block content %}
+<style>
+  /* back + stage tabs */
+  .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 14px; margin-bottom: 20px; }
+  .back-link:hover { color: var(--text); }
+  .stage-tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+  .stage-tab {
+    padding: 8px 20px; border-radius: 8px;
+    font-size: 14px; font-weight: 500; text-decoration: none;
+    color: var(--muted); background: var(--surface); border: 1px solid var(--border);
+    transition: filter .15s;
+  }
+  .stage-tab:hover   { filter: brightness(.96); }
+  .stage-tab.active  { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .stage-tab.locked  { opacity: .38; pointer-events: none; }
+
+  /* song header */
+  .song-meta { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+  .song-meta-text h2 { font-size: 20px; font-weight: 700; }
+  .song-meta-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+  .vid-chip { font-family: 'Consolas', monospace; font-size: 11px; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; color: var(--muted); }
+
+  /* section label */
+  .section-label { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 12px; }
+
+  /* audio */
+  .audio-wrap { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; }
+  .audio-wrap audio { width: 100%; }
+
+  /* lyrics editor */
+  .lyrics-area {
+    width: 100%; min-height: 380px;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; font-size: 14px; line-height: 1.8;
+    font-family: inherit; resize: vertical; color: var(--text); background: #fafafa;
+  }
+  .lyrics-area:focus { outline: 2px solid var(--accent); background: #fff; }
+
+  /* SRT blocks */
+  .srt-list { display: flex; flex-direction: column; gap: 8px; }
+  .srt-block {
+    border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; background: #fafafa;
+    transition: border-color .15s, background .15s;
+    scroll-margin-top: 80px;
+  }
+  .srt-block.active { border-color: var(--accent); background: #f0f1fe; }
+
+  .block-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .block-num { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 26px; }
+  .seek-btn {
+    width: 26px; height: 26px; border-radius: 50%; border: none;
+    background: var(--accent); color: #fff; cursor: pointer; font-size: 10px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background .2s, filter .15s;
+  }
+  .seek-btn:hover { filter: brightness(.85); }
+  .seek-btn.retime { background: #f59e0b; font-size: 12px; }
+
+  /* retime banner */
+  .retime-banner {
+    display: none; margin-bottom: 12px;
+    background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;
+    padding: 9px 14px; font-size: 13px; color: #c2410c;
+  }
+
+  /* playback controls bar */
+  .controls-bar {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .mode-toggle {
+    display: flex; background: #f1f5f9; border-radius: 8px; padding: 3px; gap: 2px;
+  }
+  .mode-btn {
+    padding: 5px 14px; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    background: transparent; color: var(--muted);
+    transition: all .15s;
+  }
+  .mode-btn.active {
+    background: #fff; color: var(--text);
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+  }
+  .play-pause-btn { min-width: 96px; }
+
+  @keyframes flash-green {
+    0%   { background: #d1fae5; }
+    100% { background: ''; }
+  }
+  .ts-row { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .ts-in {
+    width: 122px; padding: 4px 8px;
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; font-family: 'Consolas', monospace; color: var(--text); background: #fff;
+  }
+  .ts-in:focus { outline: 2px solid var(--accent); }
+  .ts-arrow { color: var(--muted); font-size: 14px; }
+  .srt-text-area {
+    width: 100%; padding: 7px 10px;
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 14px; font-family: inherit; line-height: 1.5;
+    resize: none; overflow: hidden; background: #fff; color: var(--text);
+  }
+  .srt-text-area:focus { outline: 2px solid var(--accent); }
+
+  /* action bar */
+  .action-bar {
+    position: sticky; bottom: 0; z-index: 50;
+    background: #fff; border-top: 1px solid var(--border);
+    padding: 14px 24px; margin: 24px -24px -24px;
+    border-radius: 0 0 12px 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .action-status { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+  /* reject modal */
+  .modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.45); z-index: 200;
+    align-items: center; justify-content: center;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: #fff; border-radius: 14px; padding: 28px;
+    width: 480px; max-width: 92vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,.2);
+  }
+  .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .modal .modal-desc { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+  .modal textarea { width: 100%; min-height: 80px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical; margin-bottom: 16px; }
+  .modal textarea:focus { outline: 2px solid var(--accent); }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+
+<!-- back -->
+<a href="/" class="back-link">← Dashboard</a>
+
+<!-- stage tabs -->
+<div class="stage-tabs">
+  <a href="/review/{{ song.video_id }}?stage=2"
+     class="stage-tab {% if stage == 2 %}active{% endif %} {% if not song.stage2_done %}locked{% endif %}">
+    Stage 2 — Lyrics
+  </a>
+  <a href="/review/{{ song.video_id }}?stage=3"
+     class="stage-tab {% if stage == 3 %}active{% endif %} {% if not song.stage3_done %}locked{% endif %}">
+    Stage 3 — English SRT
+  </a>
+</div>
+
+<!-- song header -->
+<div class="song-meta">
+  <div class="song-meta-text">
+    <h2>{{ song._folder }}</h2>
+    <div class="song-meta-row">
+      <span class="vid-chip">{{ song.video_id }}</span>
+      {% if song.lyrics_source %}<span class="badge badge-source">{{ song.lyrics_source }}</span>{% endif %}
+      {% if song.lyrics_status %}<span style="font-size:13px;color:var(--muted);">{{ song.lyrics_status }}</span>{% endif %}
+      <span class="badge badge-{{ status }}">{{ status }}</span>
+      {% set reason_key = 'stage' ~ stage ~ '_reason' %}
+      {% if review.get(reason_key) %}
+        <span style="font-size:12px;color:#ef4444;">⚠ {{ review.get(reason_key) }}</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- main card -->
+<div class="card">
+
+  {# ── STAGE 2: Lyrics ── #}
+  {% if stage == 2 %}
+
+  <div class="section-label">Lyrics{% if song.lyrics_source %} · found via {{ song.lyrics_source }}{% endif %}</div>
+
+  <form id="main-form" method="POST" action="/review/{{ song.video_id }}/save">
+    <input type="hidden" name="stage" value="2">
+    <textarea class="lyrics-area" name="lyrics" placeholder="No lyrics found — run stage 2 first.">{{ song.lyrics or '' }}</textarea>
+
+    <div class="action-bar">
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <button type="button" class="btn btn-green" onclick="doApprove()">Approve ✓</button>
+      <button type="button" class="btn btn-red"   onclick="openReject()">Reject</button>
+      <span class="action-status">
+        {% if status == 'approved' %}✓ Approved{% elif status == 'fixed' %}Fixed — pending approval{% elif status == 'rejected' %}Rejected — rerun stage 2{% else %}Pending review{% endif %}
+      </span>
+    </div>
+  </form>
+
+  {# ── STAGE 3: SRT Timing ── #}
+  {% elif stage == 3 %}
+
+  {% if song.audio_path %}
+  <div class="audio-wrap">
+    <div class="section-label" style="margin-bottom:8px;">Audio</div>
+    <audio id="audio" controls preload="metadata">
+      <source src="/audio/{{ song.video_id }}" type="audio/mpeg">
+      Your browser does not support audio playback.
+    </audio>
+  </div>
+  {% endif %}
+
+  {% if srt_blocks %}
+  <div class="controls-bar">
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-full" onclick="setMode('full')">Full song</button>
+      <button class="mode-btn"        id="mode-seg"  onclick="setMode('segment')">One segment</button>
+    </div>
+    <button class="btn btn-ghost play-pause-btn" id="play-pause-btn" onclick="togglePlayPause()">▶ Play</button>
+    <span style="font-size:12px;color:var(--muted);margin-left:4px;" id="mode-hint">Full song — audio plays straight through</span>
+  </div>
+  <div class="retime-banner" id="retime-hint">
+    <strong>Live mode</strong> — click <strong>●</strong> the moment you hear a line start and its timestamp (plus the previous line's end) will snap to that exact point.
+  </div>
+  <div class="section-label">{{ srt_blocks|length }} subtitle blocks</div>
+
+  <form id="main-form" method="POST" action="/review/{{ song.video_id }}/save">
+    <input type="hidden" name="stage" value="3">
+    <div class="srt-list">
+      {% for b in srt_blocks %}
+      <div class="srt-block" id="sb{{ loop.index }}" data-idx="{{ loop.index }}" data-start="{{ b.start_ms }}" data-end="{{ b.end_ms }}">
+        <div class="block-row">
+          <span class="block-num">#{{ loop.index }}</span>
+          <button type="button" class="seek-btn" data-ms="{{ b.start_ms }}" title="Seek audio to this line">▶</button>
+          <div class="ts-row">
+            <input class="ts-in" type="text" name="start_{{ loop.index }}" value="{{ b.start }}" pattern="\d{2}:\d{2}:\d{2},\d{3}" title="HH:MM:SS,mmm">
+            <span class="ts-arrow">→</span>
+            <input class="ts-in" type="text" name="end_{{ loop.index }}"   value="{{ b.end }}"   pattern="\d{2}:\d{2}:\d{2},\d{3}" title="HH:MM:SS,mmm">
+          </div>
+        </div>
+        <textarea class="srt-text-area" name="text_{{ loop.index }}" rows="1">{{ b.text }}</textarea>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="action-bar">
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <button type="button" class="btn btn-green" onclick="doApprove()">Approve ✓</button>
+      <button type="button" class="btn btn-red"   onclick="openReject()">Reject</button>
+      <span class="action-status">
+        {% if status == 'approved' %}✓ Approved{% elif status == 'fixed' %}Fixed — pending approval{% elif status == 'rejected' %}Rejected{% else %}Pending review{% endif %}
+      </span>
+    </div>
+  </form>
+
+  {% else %}
+  <p style="padding:40px;text-align:center;color:var(--muted);">No SRT file found. Run stage 3 first.</p>
+  {% endif %}
+
+  {% endif %}
+
+</div>{# /card #}
+
+<!-- hidden approve form -->
+<form id="approve-form" method="POST" action="/review/{{ song.video_id }}/approve" style="display:none;">
+  <input type="hidden" name="stage" value="{{ stage }}">
+</form>
+
+<!-- reject modal -->
+<div class="modal-bg" id="reject-modal">
+  <div class="modal">
+    <h3>Reject — Stage {{ stage }}</h3>
+    <p class="modal-desc">
+      {% if stage == 2 %}
+        The current lyrics source ({{ song.lyrics_source or 'unknown' }}) will be flagged. On the next stage 2 run, the pipeline will skip it and try the next source in the waterfall.
+      {% else %}
+        The SRT will be marked as rejected. Fix manually or reprocess from stage 3.
+      {% endif %}
+    </p>
+    <form method="POST" action="/review/{{ song.video_id }}/reject">
+      <input type="hidden" name="stage" value="{{ stage }}">
+      <textarea name="reason" placeholder="Reason (optional) — e.g. wrong song matched, lyrics truncated, timing off by 2 s..."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeReject()">Cancel</button>
+        <button type="submit" class="btn btn-red">Confirm Reject</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function doApprove() { document.getElementById('approve-form').submit(); }
+function openReject() { document.getElementById('reject-modal').classList.add('open'); }
+function closeReject() { document.getElementById('reject-modal').classList.remove('open'); }
+document.getElementById('reject-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeReject();
+});
+
+{% if stage == 3 and srt_blocks %}
+var audio = document.getElementById('audio');
+var segmentMode   = false;
+var segmentEndMs  = null;
+
+// ── utilities ──────────────────────────────────────────────────────────────
+function pad2(n) { return String(n).padStart(2, '0'); }
+function pad3(n) { return String(n).padStart(3, '0'); }
+function msToSrt(ms) {
+  ms = Math.max(0, Math.floor(ms));
+  var h = Math.floor(ms / 3600000); ms -= h * 3600000;
+  var m = Math.floor(ms / 60000);   ms -= m * 60000;
+  var s = Math.floor(ms / 1000);    ms -= s * 1000;
+  return pad2(h) + ':' + pad2(m) + ':' + pad2(s) + ',' + pad3(ms);
+}
+function flashInput(el) {
+  el.style.transition = 'background .08s';
+  el.style.background = '#d1fae5';
+  setTimeout(function() { el.style.transition = 'background .5s'; el.style.background = ''; }, 700);
+}
+
+// ── play/pause button ──────────────────────────────────────────────────────
+function togglePlayPause() {
+  if (audio.paused) { audio.play(); } else { audio.pause(); }
+}
+function updatePlayPauseBtn() {
+  var btn = document.getElementById('play-pause-btn');
+  btn.textContent = audio.paused ? '▶ Play' : '⏸ Pause';
+}
+audio.addEventListener('play',  updatePlayPauseBtn);
+audio.addEventListener('pause', updatePlayPauseBtn);
+audio.addEventListener('ended', updatePlayPauseBtn);
+
+// ── mode toggle ────────────────────────────────────────────────────────────
+function setMode(mode) {
+  segmentMode = (mode === 'segment');
+  segmentEndMs = null;
+  document.getElementById('mode-full').classList.toggle('active', !segmentMode);
+  document.getElementById('mode-seg').classList.toggle('active',  segmentMode);
+  document.getElementById('mode-hint').textContent = segmentMode
+    ? 'One segment — plays the clicked line then stops'
+    : 'Full song — audio plays straight through';
+}
+
+// ── retime mode: change button appearance while playing ───────────────────
+function setRetimeMode(on) {
+  document.querySelectorAll('.seek-btn').forEach(function(btn) {
+    btn.classList.toggle('retime', on);
+    btn.textContent = on ? '●' : '▶';
+    btn.title = on ? "Snap this line's start to now" : 'Seek / play this line';
+  });
+  document.getElementById('retime-hint').style.display = on ? 'block' : 'none';
+}
+audio.addEventListener('play',  function() { setRetimeMode(true); });
+audio.addEventListener('pause', function() { setRetimeMode(false); });
+audio.addEventListener('ended', function() { setRetimeMode(false); segmentEndMs = null; });
+
+// ── seek / retime click ────────────────────────────────────────────────────
+document.querySelectorAll('.seek-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var block = this.closest('.srt-block');
+    var idx   = parseInt(block.dataset.idx);
+
+    if (!audio.paused) {
+      // RETIME: snap this block's start + previous block's end to now
+      var nowMs  = Math.floor(audio.currentTime * 1000);
+      var nowSrt = msToSrt(nowMs);
+      var startIn = document.querySelector('[name="start_' + idx + '"]');
+      if (startIn) { startIn.value = nowSrt; flashInput(startIn); }
+      block.dataset.start = nowMs;
+      if (idx > 1) {
+        var prevEnd = document.querySelector('[name="end_' + (idx - 1) + '"]');
+        if (prevEnd) { prevEnd.value = nowSrt; flashInput(prevEnd); }
+        var prevBlock = document.querySelector('[data-idx="' + (idx - 1) + '"]');
+        if (prevBlock) prevBlock.dataset.end = nowMs;
+      }
+    } else {
+      // SEEK: jump to this block's start and play
+      audio.currentTime = parseInt(block.dataset.start) / 1000;
+      if (segmentMode) {
+        segmentEndMs = parseInt(block.dataset.end);
+      }
+      audio.play();
+    }
+  });
+});
+
+// ── highlight + auto-scroll + segment stop ────────────────────────────────
+audio.addEventListener('timeupdate', function() {
+  var t = audio.currentTime * 1000;
+
+  // Segment mode: stop at the end of the targeted block
+  if (segmentMode && segmentEndMs !== null && t >= segmentEndMs) {
+    audio.pause();
+    audio.currentTime = segmentEndMs / 1000;
+    segmentEndMs = null;
+    return;
+  }
+
+  document.querySelectorAll('.srt-block').forEach(function(block) {
+    var isActive = t >= parseInt(block.dataset.start) && t < parseInt(block.dataset.end);
+    if (isActive && !block.classList.contains('active')) {
+      block.classList.add('active');
+      block.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (!isActive) {
+      block.classList.remove('active');
+    }
+  });
+});
+
+// ── auto-resize textareas ─────────────────────────────────────────────────
+document.querySelectorAll('.srt-text-area').forEach(function(ta) {
+  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  resize();
+  ta.addEventListener('input', resize);
+});
+{% endif %}
+</script>
+{% endblock %}
