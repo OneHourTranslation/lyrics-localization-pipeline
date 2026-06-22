@@ -101,6 +101,42 @@ output/
 
 ---
 
+## Sharing with reviewers (no installation required for them)
+
+Use `share.py` to expose the review tool publicly via ngrok. Reviewers open a link in their browser — nothing to install on their end.
+
+**One-time ngrok setup (you only):**
+
+1. Install ngrok
+   - Windows: `winget install ngrok`
+   - Mac: `brew install ngrok`
+   - Linux: `snap install ngrok`
+2. Sign up free at [ngrok.com](https://ngrok.com) and copy your authtoken
+3. Run once: `ngrok config add-authtoken <your-token>`
+
+**Every time you want to share:**
+
+```bash
+python share.py
+```
+
+Output:
+```
+  ------------------------------------------------
+  Review tool is LIVE - share this link:
+  ------------------------------------------------
+
+      https://abc123.ngrok-free.app
+
+  Local (your machine only): http://localhost:8080
+  ------------------------------------------------
+  Press Ctrl+C to stop sharing.
+```
+
+Paste that URL into Slack/email. Your machine needs to stay on while reviewers are working. Press `Ctrl+C` to stop.
+
+---
+
 ## Review tool
 
 A local web app for validating and correcting pipeline output. Works in any browser.
