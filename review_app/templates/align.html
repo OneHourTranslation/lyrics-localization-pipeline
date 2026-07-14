@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Align — {{ song._folder }}{% endblock %}
+
+{% block content %}
+<style>
+  .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 14px; margin-bottom: 20px; }
+  .back-link:hover { color: var(--text); }
+
+  .song-meta { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+  .song-meta-text h2 { font-size: 20px; font-weight: 700; }
+  .song-meta-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+  .vid-chip { font-family: 'Consolas', monospace; font-size: 11px; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; color: var(--muted); }
+
+  .audio-wrap { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  .audio-wrap audio { width: 100%; }
+
+  .controls-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 12px; position: sticky; top: 0; z-index: 40;
+    background: var(--bg); padding: 10px 0;
+  }
+  .rate-toggle { display: flex; background: #f1f5f9; border-radius: 8px; padding: 3px; gap: 2px; }
+  .rate-btn {
+    padding: 5px 12px; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    background: transparent; color: var(--muted); transition: all .15s;
+  }
+  .rate-btn.active { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .nudge-btn, .tap-btn, .undo-btn {
+    border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: filter .15s, transform .1s;
+  }
+  .nudge-btn:active, .tap-btn:active, .undo-btn:active { transform: scale(.97); }
+  .nudge-btn { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 8px 14px; font-size: 13px; }
+  .undo-btn  { background: var(--surface); color: #ef4444; border: 1px solid var(--border); padding: 8px 14px; font-size: 13px; }
+  .tap-btn {
+    background: var(--accent); color: #fff; padding: 8px 22px; font-size: 14px;
+    box-shadow: 0 2px 8px rgba(99,102,241,.35);
+  }
+  .tap-btn:hover, .nudge-btn:hover, .undo-btn:hover { filter: brightness(.94); }
+  .progress-pill {
+    margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 5px 12px;
+  }
+
+  .help-banner {
+    background: #f0f4ff; border: 1px solid #dbe4ff; border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: #4338ca; margin-bottom: 16px;
+  }
+  .help-banner kbd {
+    background: #fff; border: 1px solid #c7d2fe; border-radius: 4px;
+    padding: 1px 6px; font-family: 'Consolas', monospace; font-size: 12px;
+  }
+
+  .lines-list { display: flex; flex-direction: column; gap: 6px; }
+  .line-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 8px 12px; background: #fafafa;
+    transition: border-color .15s, background .15s;
+    scroll-margin-top: 120px;
+  }
+  .line-row.marked { border-color: #10b981; }
+  .line-row.cursor { border-color: var(--accent); background: #f0f1fe; }
+  .line-row.active { background: #eafff5; }
+
+  .line-num { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 24px; }
+  .mark-btn {
+    width: 28px; height: 28px; border-radius: 50%; border: none;
+    background: #cbd5e1; color: #fff; cursor: pointer; font-size: 10px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background .2s, filter .15s;
+  }
+  .line-row.marked .mark-btn { background: #10b981; }
+  .line-row.cursor .mark-btn { background: var(--accent); }
+  .mark-btn:hover { filter: brightness(.9); }
+  .ts-badge {
+    font-family: 'Consolas', monospace; font-size: 11px; color: var(--muted);
+    min-width: 88px; text-align: center;
+  }
+  .line-row.marked .ts-badge { color: #059669; font-weight: 600; }
+  .line-text {
+    flex: 1; border: none; background: transparent; font-size: 14px;
+    font-family: inherit; line-height: 1.4; resize: none; overflow: hidden;
+    color: var(--text); padding: 4px 0;
+  }
+  .line-text:focus { outline: none; background: #fff; border-radius: 4px; padding: 4px 6px; }
+
+  @keyframes flash-green { 0% { background: #bbf7d0; } 100% { background: transparent; } }
+
+  .action-bar {
+    position: sticky; bottom: 0; z-index: 50;
+    background: #fff; border-top: 1px solid var(--border);
+    padding: 14px 24px; margin: 24px -24px -24px;
+    border-radius: 0 0 12px 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .action-status { margin-left: auto; font-size: 13px; color: var(--muted); }
+</style>
+
+<a href="/review/{{ song.video_id }}?stage=2" class="back-link">← Back to lyrics</a>
+
+<div class="song-meta">
+  <div class="song-meta-text">
+    <h2>{{ song._folder }}</h2>
+    <div class="song-meta-row">
+      <span class="vid-chip">{{ song.video_id }}</span>
+      {% if song.lyrics_source %}<span class="badge badge-source">{{ song.lyrics_source }}</span>{% endif %}
+      <span style="font-size:13px;color:var(--muted);">manual alignment</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  {% if not song.audio_path %}
+  <p style="padding:40px;text-align:center;color:var(--muted);">No audio found. Run stage 1 first.</p>
+  {% elif not lines %}
+  <p style="padding:40px;text-align:center;color:var(--muted);">No lyrics found. Add lyrics on the Stage 2 page first.</p>
+  {% else %}
+
+  <div class="audio-wrap">
+    <div class="section-label" style="margin-bottom:8px;">Audio</div>
+    <audio id="audio" controls preload="metadata">
+      <source src="/audio/{{ song.video_id }}" type="audio/mpeg">
+      Your browser does not support audio playback.
+    </audio>
+  </div>
+
+  <div class="help-banner">
+    Play the audio, then hit <kbd>Space</kbd> (or the <strong>Tap</strong> button) the instant each line starts —
+    it marks the highlighted line and jumps to the next one. Click any line's own dot to mark or re-mark it directly.
+    Click a marked line while paused to jump back to it.
+  </div>
+
+  <div class="controls-bar">
+    <div class="rate-toggle">
+      <button type="button" class="rate-btn" data-rate="0.5">0.5x</button>
+      <button type="button" class="rate-btn" data-rate="0.75">0.75x</button>
+      <button type="button" class="rate-btn active" data-rate="1">1x</button>
+    </div>
+    <button type="button" class="nudge-btn" id="nudge-back">◀ 2s</button>
+    <button type="button" class="tap-btn" id="tap-btn">⏱ Tap (Space)</button>
+    <button type="button" class="nudge-btn" id="nudge-fwd">2s ▶</button>
+    <button type="button" class="undo-btn" id="undo-btn">Undo last</button>
+    <span class="progress-pill" id="progress-pill">0 / {{ lines|length }} marked</span>
+  </div>
+
+  <form id="align-form" method="POST" action="/align/{{ song.video_id }}/save">
+    <div class="lines-list" id="lines-list">
+      {% for line in lines %}
+      <div class="line-row {% if loop.index == 1 %}cursor{% endif %}" id="lr{{ loop.index }}" data-idx="{{ loop.index }}" data-start="-1">
+        <span class="line-num">#{{ loop.index }}</span>
+        <button type="button" class="mark-btn" title="Mark / re-mark this line to the current audio time">●</button>
+        <span class="ts-badge" id="badge{{ loop.index }}">—</span>
+        <input type="hidden" name="start_ms_{{ loop.index }}" id="start_ms_{{ loop.index }}" value="">
+        <textarea class="line-text" name="text_{{ loop.index }}" rows="1">{{ line }}</textarea>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="action-bar">
+      <button type="submit" class="btn btn-primary">Save &amp; write en.srt</button>
+      <button type="button" class="btn btn-ghost" id="reset-btn">Reset all marks</button>
+      <span class="action-status">Unmarked lines are dropped from the SRT — mark the ones you want, then save.</span>
+    </div>
+  </form>
+
+  {% endif %}
+</div>
+
+{% if lines and song.audio_path %}
+<script>
+var audio = document.getElementById('audio');
+var rows = Array.prototype.slice.call(document.querySelectorAll('.line-row'));
+var total = rows.length;
+var cursorIdx = 1; // 1-based index of the next line to mark
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function fmt(ms) {
+  ms = Math.max(0, Math.floor(ms));
+  var m = Math.floor(ms / 60000);
+  var s = Math.floor((ms % 60000) / 1000);
+  var cs = Math.floor((ms % 1000) / 10);
+  return pad2(m) + ':' + pad2(s) + '.' + pad2(cs);
+}
+function rowByIdx(idx) { return document.getElementById('lr' + idx); }
+
+function updateProgress() {
+  var marked = rows.filter(function(r) { return parseFloat(r.dataset.start) >= 0; }).length;
+  document.getElementById('progress-pill').textContent = marked + ' / ' + total + ' marked';
+}
+
+function setCursor(idx) {
+  rows.forEach(function(r) { r.classList.remove('cursor'); });
+  if (idx >= 1 && idx <= total) {
+    var r = rowByIdx(idx);
+    r.classList.add('cursor');
+    r.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  cursorIdx = idx;
+}
+
+function markLine(idx, ms) {
+  var row = rowByIdx(idx);
+  if (!row) return;
+  row.dataset.start = ms;
+  row.classList.add('marked');
+  document.getElementById('start_ms_' + idx).value = ms;
+  var badge = document.getElementById('badge' + idx);
+  badge.textContent = fmt(ms);
+  badge.style.animation = 'none';
+  void badge.offsetWidth;
+  badge.style.animation = 'flash-green .6s ease';
+  updateProgress();
+}
+
+// ── Tap / mark-and-advance ───────────────────────────────────────────────
+function tap() {
+  if (audio.paused) { audio.play(); return; }
+  markLine(cursorIdx, Math.floor(audio.currentTime * 1000));
+  setCursor(Math.min(cursorIdx + 1, total + 1));
+}
+document.getElementById('tap-btn').addEventListener('click', tap);
+
+document.addEventListener('keydown', function(e) {
+  var tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+  if (e.code === 'Space' || e.code === 'Enter') {
+    e.preventDefault();
+    tap();
+  }
+});
+
+// ── per-line mark button (mark/re-mark that exact line) ───────────────────
+rows.forEach(function(row) {
+  row.querySelector('.mark-btn').addEventListener('click', function() {
+    var idx = parseInt(row.dataset.idx);
+    if (!audio.paused) {
+      markLine(idx, Math.floor(audio.currentTime * 1000));
+      setCursor(idx + 1);
+    } else if (parseFloat(row.dataset.start) >= 0) {
+      audio.currentTime = parseFloat(row.dataset.start) / 1000;
+      audio.play();
+    } else {
+      audio.play();
+    }
+  });
+});
+
+// ── undo ───────────────────────────────────────────────────────────────────
+document.getElementById('undo-btn').addEventListener('click', function() {
+  var target = cursorIdx - 1;
+  if (target < 1) return;
+  var row = rowByIdx(target);
+  row.dataset.start = -1;
+  row.classList.remove('marked');
+  document.getElementById('start_ms_' + target).value = '';
+  document.getElementById('badge' + target).textContent = '—';
+  setCursor(target);
+  updateProgress();
+});
+
+// ── reset all ────────────────────────────────────────────────────────────
+document.getElementById('reset-btn').addEventListener('click', function() {
+  if (!confirm('Clear all marks on this song?')) return;
+  rows.forEach(function(row) {
+    var idx = row.dataset.idx;
+    row.dataset.start = -1;
+    row.classList.remove('marked');
+    document.getElementById('start_ms_' + idx).value = '';
+    document.getElementById('badge' + idx).textContent = '—';
+  });
+  setCursor(1);
+  updateProgress();
+});
+
+// ── playback rate ────────────────────────────────────────────────────────
+document.querySelectorAll('.rate-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.rate-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    audio.playbackRate = parseFloat(btn.dataset.rate);
+  });
+});
+
+// ── nudge seek ───────────────────────────────────────────────────────────
+document.getElementById('nudge-back').addEventListener('click', function() { audio.currentTime = Math.max(0, audio.currentTime - 2); });
+document.getElementById('nudge-fwd').addEventListener('click',  function() { audio.currentTime = audio.currentTime + 2; });
+
+// ── highlight actively-playing line among marked ones ──────────────────────
+audio.addEventListener('timeupdate', function() {
+  var t = audio.currentTime * 1000;
+  var marked = rows.filter(function(r) { return parseFloat(r.dataset.start) >= 0; });
+  marked.forEach(function(r, i) {
+    var start = parseFloat(r.dataset.start);
+    var end = (i + 1 < marked.length) ? parseFloat(marked[i + 1].dataset.start) : start + 4000;
+    r.classList.toggle('active', t >= start && t < end);
+  });
+});
+
+// ── auto-resize textareas ──────────────────────────────────────────────────
+document.querySelectorAll('.line-text').forEach(function(ta) {
+  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  resize();
+  ta.addEventListener('input', resize);
+});
+
+updateProgress();
+</script>
+{% endif %}
+{% endblock %}

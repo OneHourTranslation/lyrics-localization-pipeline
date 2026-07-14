@@ -6,6 +6,7 @@ Can be rerun independently; skips songs where audio already exists.
 """
 import asyncio
 import logging
+import re
 
 import yt_dlp
 
@@ -15,14 +16,38 @@ from utils.path_utils import song_dir, song_folder_name
 
 logger = logging.getLogger(__name__)
 
+_TITLE_ARTIST_RE = re.compile(r"^\s*([^-]+?)\s+-\s+\S.*")
+
+
+def _artist_from_title(title: str) -> str | None:
+    """Music videos are almost always titled 'Artist - Song Title' — use that
+    before falling back to the uploader, which is often a label/VEVO channel
+    rather than the performing artist."""
+    m = _TITLE_ARTIST_RE.match(title or "")
+    if m:
+        candidate = m.group(1).strip()
+        if candidate:
+            return candidate
+    return None
+
 
 def _extract_artist(info: dict) -> str:
+    """Priority: explicit YouTube Music tags > artist parsed from the title >
+    uploader/channel (often a label or VEVO channel, least reliable)."""
     return (
         info.get("artist")
+        or info.get("album_artist")
         or info.get("creator")
+        or _artist_from_title(info.get("title", ""))
         or info.get("uploader")
+        or info.get("channel")
         or "Unknown Artist"
     )
+
+
+def _extract_title(info: dict) -> str:
+    """Prefer YouTube Music's clean track title over the raw video title."""
+    return info.get("track") or info.get("alt_title") or info.get("title") or "Unknown Title"
 
 
 def _ydl_info_only(url: str) -> dict:
@@ -51,7 +76,7 @@ def _ydl_download(url: str, out_dir: str) -> dict:
 def save_result(song: SongResult) -> None:
     d = song_dir(settings.output_dir, song.artist, song.title)
     d.mkdir(parents=True, exist_ok=True)
-    (d / "song.json").write_text(song.model_dump_json(indent=2))
+    (d / "song.json").write_text(song.model_dump_json(indent=2), encoding="utf-8")
 
 
 def load_all_results() -> list[SongResult]:
@@ -91,7 +116,7 @@ async def process_url(url: str) -> SongResult:
         return cached
 
     # Get artist/title early so we can build the output directory
-    title: str = info_only.get("title", "Unknown Title")
+    title: str = _extract_title(info_only)
     artist: str = _extract_artist(info_only)
     out_dir = song_dir(settings.output_dir, artist, title)
     out_dir.mkdir(parents=True, exist_ok=True)

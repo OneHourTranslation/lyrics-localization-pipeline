@@ -5,6 +5,7 @@ Start with: python review.py serve
 import json
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -96,6 +97,41 @@ def _blocks_to_srt(blocks: list[dict]) -> str:
     )
 
 
+def _ms_to_srt(ms: int) -> str:
+    ms = max(0, int(ms))
+    h, rem = divmod(ms, 3_600_000)
+    m, rem = divmod(rem, 60_000)
+    s, millis = divmod(rem, 1_000)
+    return f"{h:02d}:{m:02d}:{s:02d},{millis:03d}"
+
+
+def _try_ts_to_ms(ts: str) -> int | None:
+    try:
+        return _ts_to_ms(ts)
+    except (ValueError, AttributeError, IndexError):
+        return None
+
+
+def _validate_srt_blocks(blocks: list[dict]) -> list[str]:
+    """Blocking errors only — malformed timestamps, empty text, or end <= start.
+    Overlaps between lines aren't blocked here since backing-vocal/duet lines can
+    legitimately overlap; the browser warns on those but lets the user proceed."""
+    errors = []
+    for i, b in enumerate(blocks, 1):
+        text = (b.get("text") or "").strip()
+        start_ms = _try_ts_to_ms(b.get("start", ""))
+        end_ms = _try_ts_to_ms(b.get("end", ""))
+
+        if start_ms is None or end_ms is None:
+            errors.append(f"Line {i}: invalid timestamp format")
+            continue
+        if not text:
+            errors.append(f"Line {i}: empty text — delete this segment instead of leaving it blank")
+        if end_ms <= start_ms:
+            errors.append(f"Line {i}: end time must be after start time")
+    return errors
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -124,6 +160,61 @@ async def review_page(request: Request, video_id: str, stage: int = 2):
         "status": review.get(f"stage{stage}", "pending"),
         "srt_blocks": srt_blocks,
     })
+
+
+@app.get("/align/{video_id}", response_class=HTMLResponse)
+async def align_page(request: Request, video_id: str):
+    song, _ = _find_song(video_id)
+    if not song:
+        raise HTTPException(404, "Song not found")
+
+    lines = [ln.strip() for ln in (song.get("lyrics") or "").splitlines() if ln.strip()]
+
+    return templates.TemplateResponse(request, "align.html", {
+        "song": song,
+        "lines": lines,
+    })
+
+
+@app.post("/align/{video_id}/save")
+async def save_alignment(request: Request, video_id: str):
+    song, json_path = _find_song(video_id)
+    if not song:
+        raise HTTPException(404)
+
+    form = await request.form()
+    rows = []
+    i = 1
+    while f"text_{i}" in form:
+        text = (form.get(f"text_{i}") or "").strip()
+        start_raw = (form.get(f"start_ms_{i}") or "").strip()
+        if text and start_raw:
+            try:
+                rows.append({"text": text, "start_ms": int(float(start_raw))})
+            except ValueError:
+                pass
+        i += 1
+
+    if not rows:
+        raise HTTPException(400, "No marked lines to save — tap at least one line before saving.")
+
+    rows.sort(key=lambda r: r["start_ms"])
+    blocks = []
+    for idx, r in enumerate(rows):
+        end_ms = rows[idx + 1]["start_ms"] if idx + 1 < len(rows) else r["start_ms"] + 4000
+        blocks.append({"start": _ms_to_srt(r["start_ms"]), "end": _ms_to_srt(end_ms), "text": r["text"]})
+
+    srt_path = json_path.parent / "en.srt"
+    srt_path.write_text(_blocks_to_srt(blocks), encoding="utf-8")
+
+    song["en_srt_path"] = str(srt_path)
+    song["stage3_done"] = True
+    review = song.get("review") or {}
+    review["stage3"] = "fixed"
+    song["review"] = review
+    _save_song(song, json_path)
+
+    return RedirectResponse(f"/review/{video_id}?stage=3&saved=1", status_code=303)
 
 
 @app.get("/audio/{video_id}")
@@ -157,6 +248,12 @@ async def save_edits(request: Request, video_id: str, stage: int = Form(...)):
                 "text":  form.get(f"text_{i}",  ""),
             })
             i += 1
+
+        errors = _validate_srt_blocks(blocks) if blocks else []
+        if errors:
+            msg = quote(" | ".join(errors)[:500])
+            return RedirectResponse(f"/review/{video_id}?stage=3&error={msg}", status_code=303)
+
         if blocks and song.get("en_srt_path"):
             Path(song["en_srt_path"]).write_text(_blocks_to_srt(blocks), encoding="utf-8")
 

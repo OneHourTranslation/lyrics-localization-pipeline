@@ -37,6 +37,9 @@ class SongResult(BaseModel):
     timestamps: Optional[list[TimestampEntry]] = None
     timestamps_available: bool = False
 
+    lyrics_source_duration_s: Optional[float] = None  # duration reported by the lyrics source's matched track
+    duration_mismatch: Optional[str] = None           # "low" | "medium" | "high" — set only when it may be the wrong track
+
     routing: Optional[LyricsRoute] = None
     stage1_done: bool = False
     stage2_done: bool = False

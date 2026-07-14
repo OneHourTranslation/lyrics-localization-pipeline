@@ -65,6 +65,9 @@
     .badge-rejected { background: #fee2e2; color: #991b1b; }
     .badge-na       { background: #f1f5f9; color: #94a3b8; }
     .badge-source   { background: #f0f4ff; color: #4338ca; }
+    .badge-dur-low    { background: #fef9c3; color: #854d0e; }
+    .badge-dur-medium { background: #ffedd5; color: #9a3412; }
+    .badge-dur-high   { background: #fee2e2; color: #991b1b; }
 
     /* ── buttons ── */
     .btn {
@@ -107,15 +110,17 @@
   {% block content %}{% endblock %}
 </div>
 
-{% if request.query_params.get('saved') %}
+{% if request.query_params.get('error') %}
+  <div class="toast toast-bad" id="_toast">Not saved — {{ request.query_params.get('error') }}</div>
+{% elif request.query_params.get('saved') %}
   <div class="toast toast-ok" id="_toast">Changes saved.</div>
 {% elif request.query_params.get('msg') == 'approved' %}
   <div class="toast toast-ok" id="_toast">Song approved ✓</div>
 {% elif request.query_params.get('msg') == 'rejected' %}
   <div class="toast toast-bad" id="_toast">Song rejected — rerun stage 2 to try the next source.</div>
 {% endif %}
-{% if request.query_params.get('saved') or request.query_params.get('msg') %}
-  <script>setTimeout(function(){ var t=document.getElementById('_toast'); if(t) t.remove(); }, 3500);</script>
+{% if request.query_params.get('saved') or request.query_params.get('msg') or request.query_params.get('error') %}
+  <script>setTimeout(function(){ var t=document.getElementById('_toast'); if(t) t.remove(); }, 6000);</script>
 {% endif %}
 
 </body>

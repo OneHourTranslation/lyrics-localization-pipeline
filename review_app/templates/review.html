@@ -59,6 +59,30 @@
   }
   .seek-btn:hover { filter: brightness(.85); }
   .seek-btn.retime { background: #f59e0b; font-size: 12px; }
+  .pause-btn {
+    width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer; font-size: 10px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: filter .15s;
+  }
+  .pause-btn:hover { filter: brightness(.94); }
+  .add-btn, .del-btn {
+    width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    line-height: 1; transition: filter .15s, background .15s;
+  }
+  .add-btn { color: #10b981; margin-left: auto; }
+  .add-btn:hover { background: #ecfdf5; }
+  .del-btn { color: #ef4444; }
+  .del-btn:hover { background: #fef2f2; }
+  .srt-block.invalid { border-color: #ef4444; background: #fef2f2; }
+  .srt-block.overlap-warn { border-color: #f59e0b; }
+  .validation-banner {
+    display: none; margin-bottom: 12px; background: #fef2f2; border: 1px solid #fecaca;
+    border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #991b1b;
+  }
+  .validation-banner ul { margin: 6px 0 0 18px; }
 
   /* retime banner */
   .retime-banner {
@@ -159,6 +183,11 @@
       <span class="vid-chip">{{ song.video_id }}</span>
       {% if song.lyrics_source %}<span class="badge badge-source">{{ song.lyrics_source }}</span>{% endif %}
       {% if song.lyrics_status %}<span style="font-size:13px;color:var(--muted);">{{ song.lyrics_status }}</span>{% endif %}
+      {% if song.duration_mismatch %}
+        <span class="badge badge-dur-{{ song.duration_mismatch }}" title="YouTube: {{ song.duration_s }}s vs {{ song.lyrics_source }}: {{ song.lyrics_source_duration_s }}s">
+          ⚠ {{ song.duration_mismatch }} duration mismatch
+        </span>
+      {% endif %}
       <span class="badge badge-{{ status }}">{{ status }}</span>
       {% set reason_key = 'stage' ~ stage ~ '_reason' %}
       {% if review.get(reason_key) %}
@@ -217,19 +246,24 @@
   </div>
   <div class="section-label">{{ srt_blocks|length }} subtitle blocks</div>
 
+  <div class="validation-banner" id="validation-banner"></div>
+
   <form id="main-form" method="POST" action="/review/{{ song.video_id }}/save">
     <input type="hidden" name="stage" value="3">
-    <div class="srt-list">
+    <div class="srt-list" id="srt-list">
       {% for b in srt_blocks %}
       <div class="srt-block" id="sb{{ loop.index }}" data-idx="{{ loop.index }}" data-start="{{ b.start_ms }}" data-end="{{ b.end_ms }}">
         <div class="block-row">
           <span class="block-num">#{{ loop.index }}</span>
           <button type="button" class="seek-btn" data-ms="{{ b.start_ms }}" title="Seek audio to this line">▶</button>
+          <button type="button" class="pause-btn" title="Pause playback">⏸</button>
           <div class="ts-row">
             <input class="ts-in" type="text" name="start_{{ loop.index }}" value="{{ b.start }}" pattern="\d{2}:\d{2}:\d{2},\d{3}" title="HH:MM:SS,mmm">
             <span class="ts-arrow">→</span>
             <input class="ts-in" type="text" name="end_{{ loop.index }}"   value="{{ b.end }}"   pattern="\d{2}:\d{2}:\d{2},\d{3}" title="HH:MM:SS,mmm">
           </div>
+          <button type="button" class="add-btn" title="Insert a new segment after this one">+</button>
+          <button type="button" class="del-btn" title="Delete this segment">✕</button>
         </div>
         <textarea class="srt-text-area" name="text_{{ loop.index }}" rows="1">{{ b.text }}</textarea>
       </div>
@@ -246,6 +280,11 @@
     </div>
   </form>
 
+  {% elif song.routing == 'forced_align' %}
+  <div style="padding:40px;text-align:center;color:var(--muted);">
+    <p style="margin-bottom:16px;">These lyrics have no synced timestamps yet — cut them manually.</p>
+    <a href="/align/{{ song.video_id }}" class="btn btn-primary">Align lyrics</a>
+  </div>
   {% else %}
   <p style="padding:40px;text-align:center;color:var(--muted);">No SRT file found. Run stage 3 first.</p>
   {% endif %}
@@ -304,6 +343,11 @@ function msToSrt(ms) {
   var s = Math.floor(ms / 1000);    ms -= s * 1000;
   return pad2(h) + ':' + pad2(m) + ':' + pad2(s) + ',' + pad3(ms);
 }
+function srtToMs(ts) {
+  var m = /^(\d{2}):(\d{2}):(\d{2}),(\d{3})$/.exec((ts || '').trim());
+  if (!m) return NaN;
+  return (parseInt(m[1],10)*3600000) + (parseInt(m[2],10)*60000) + (parseInt(m[3],10)*1000) + parseInt(m[4],10);
+}
 function flashInput(el) {
   el.style.transition = 'background .08s';
   el.style.background = '#d1fae5';
@@ -346,34 +390,127 @@ audio.addEventListener('play',  function() { setRetimeMode(true); });
 audio.addEventListener('pause', function() { setRetimeMode(false); });
 audio.addEventListener('ended', function() { setRetimeMode(false); segmentEndMs = null; });
 
-// ── seek / retime click ────────────────────────────────────────────────────
-document.querySelectorAll('.seek-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var block = this.closest('.srt-block');
-    var idx   = parseInt(block.dataset.idx);
+// ── renumbering (keeps names/idx sequential after add/delete) ─────────────
+function renumberBlocks() {
+  var blocks = Array.prototype.slice.call(document.querySelectorAll('.srt-block'));
+  blocks.forEach(function(block, i) {
+    var idx = i + 1;
+    block.id = 'sb' + idx;
+    block.dataset.idx = idx;
+    var numEl = block.querySelector('.block-num');
+    if (numEl) numEl.textContent = '#' + idx;
 
-    if (!audio.paused) {
-      // RETIME: snap this block's start + previous block's end to now
-      var nowMs  = Math.floor(audio.currentTime * 1000);
-      var nowSrt = msToSrt(nowMs);
-      var startIn = document.querySelector('[name="start_' + idx + '"]');
-      if (startIn) { startIn.value = nowSrt; flashInput(startIn); }
-      block.dataset.start = nowMs;
-      if (idx > 1) {
-        var prevEnd = document.querySelector('[name="end_' + (idx - 1) + '"]');
-        if (prevEnd) { prevEnd.value = nowSrt; flashInput(prevEnd); }
-        var prevBlock = document.querySelector('[data-idx="' + (idx - 1) + '"]');
-        if (prevBlock) prevBlock.dataset.end = nowMs;
-      }
-    } else {
-      // SEEK: jump to this block's start and play
-      audio.currentTime = parseInt(block.dataset.start) / 1000;
-      if (segmentMode) {
-        segmentEndMs = parseInt(block.dataset.end);
-      }
-      audio.play();
-    }
+    var tsIns = block.querySelectorAll('.ts-in');
+    var startIn = tsIns[0];
+    var endIn   = tsIns[1];
+    var ta = block.querySelector('textarea');
+
+    startIn.name = 'start_' + idx;
+    endIn.name   = 'end_' + idx;
+    ta.name      = 'text_' + idx;
+
+    var startMs = srtToMs(startIn.value);
+    var endMs   = srtToMs(endIn.value);
+    block.dataset.start = isNaN(startMs) ? -1 : startMs;
+    block.dataset.end   = isNaN(endMs)   ? -1 : endMs;
+
+    var seekBtn = block.querySelector('.seek-btn');
+    if (seekBtn) seekBtn.dataset.ms = block.dataset.start;
   });
+}
+
+// ── build a new block element (used by the + insert button) ───────────────
+function bindTextareaResize(ta) {
+  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+  resize();
+  ta.addEventListener('input', resize);
+}
+
+function createBlockElement(startMs, endMs, text) {
+  var div = document.createElement('div');
+  div.className = 'srt-block';
+  div.innerHTML =
+    '<div class="block-row">' +
+      '<span class="block-num">#</span>' +
+      '<button type="button" class="seek-btn" title="Seek audio to this line">▶</button>' +
+      '<button type="button" class="pause-btn" title="Pause playback">⏸</button>' +
+      '<div class="ts-row">' +
+        '<input class="ts-in" type="text" pattern="\\d{2}:\\d{2}:\\d{2},\\d{3}" title="HH:MM:SS,mmm">' +
+        '<span class="ts-arrow">→</span>' +
+        '<input class="ts-in" type="text" pattern="\\d{2}:\\d{2}:\\d{2},\\d{3}" title="HH:MM:SS,mmm">' +
+      '</div>' +
+      '<button type="button" class="add-btn" title="Insert a new segment after this one">+</button>' +
+      '<button type="button" class="del-btn" title="Delete this segment">✕</button>' +
+    '</div>' +
+    '<textarea class="srt-text-area" rows="1"></textarea>';
+  var inputs = div.querySelectorAll('.ts-in');
+  inputs[0].value = msToSrt(startMs);
+  inputs[1].value = msToSrt(endMs);
+  div.querySelector('textarea').value = text || '';
+  return div;
+}
+
+// ── seek / retime handling (extracted so it can be called via delegation) ──
+function handleSeekOrRetime(btn) {
+  var block = btn.closest('.srt-block');
+  var idx   = parseInt(block.dataset.idx, 10);
+
+  if (!audio.paused) {
+    // RETIME: snap this block's start + previous block's end to now
+    var nowMs  = Math.floor(audio.currentTime * 1000);
+    var nowSrt = msToSrt(nowMs);
+    var startIn = block.querySelectorAll('.ts-in')[0];
+    if (startIn) { startIn.value = nowSrt; flashInput(startIn); }
+    block.dataset.start = nowMs;
+    if (idx > 1) {
+      var prevBlock = document.querySelector('[data-idx="' + (idx - 1) + '"]');
+      if (prevBlock) {
+        var prevEnd = prevBlock.querySelectorAll('.ts-in')[1];
+        if (prevEnd) { prevEnd.value = nowSrt; flashInput(prevEnd); }
+        prevBlock.dataset.end = nowMs;
+      }
+    }
+  } else {
+    // SEEK: jump to this block's start and play
+    audio.currentTime = parseInt(block.dataset.start, 10) / 1000;
+    if (segmentMode) {
+      segmentEndMs = parseInt(block.dataset.end, 10);
+    }
+    audio.play();
+  }
+}
+
+function handleAddSegment(btn) {
+  var block = btn.closest('.srt-block');
+  var startMs = parseInt(block.dataset.end, 10);
+  if (isNaN(startMs)) startMs = parseInt(block.dataset.start, 10) + 2000;
+  var nextBlock = block.nextElementSibling;
+  var nextStart = nextBlock ? parseInt(nextBlock.dataset.start, 10) : NaN;
+  var endMs = (!isNaN(nextStart) && nextStart > startMs) ? Math.min(nextStart, startMs + 2000) : startMs + 2000;
+
+  var newBlock = createBlockElement(startMs, endMs, '');
+  block.parentNode.insertBefore(newBlock, block.nextSibling);
+  renumberBlocks();
+  bindTextareaResize(newBlock.querySelector('textarea'));
+  newBlock.querySelector('textarea').focus();
+  newBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function handleDeleteSegment(btn) {
+  var block = btn.closest('.srt-block');
+  var idx = block.dataset.idx;
+  if (!confirm('Delete segment #' + idx + '?')) return;
+  block.remove();
+  renumberBlocks();
+}
+
+// ── delegated click handling for the whole list (works for dynamically added rows too) ──
+document.getElementById('srt-list').addEventListener('click', function(e) {
+  var btn;
+  if ((btn = e.target.closest('.seek-btn')))      handleSeekOrRetime(btn);
+  else if ((btn = e.target.closest('.pause-btn'))) audio.pause();
+  else if ((btn = e.target.closest('.add-btn')))   handleAddSegment(btn);
+  else if ((btn = e.target.closest('.del-btn')))   handleDeleteSegment(btn);
 });
 
 // ── highlight + auto-scroll + segment stop ────────────────────────────────
@@ -400,10 +537,63 @@ audio.addEventListener('timeupdate', function() {
 });
 
 // ── auto-resize textareas ─────────────────────────────────────────────────
-document.querySelectorAll('.srt-text-area').forEach(function(ta) {
-  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
-  resize();
-  ta.addEventListener('input', resize);
+document.querySelectorAll('.srt-text-area').forEach(bindTextareaResize);
+
+// ── validate before submit ─────────────────────────────────────────────────
+document.getElementById('main-form').addEventListener('submit', function(e) {
+  var blocks = Array.prototype.slice.call(document.querySelectorAll('.srt-block'));
+  var errors = [];
+  var warnings = [];
+  var prevEnd = null, prevIdx = null;
+  var firstBadBlock = null;
+
+  blocks.forEach(function(block) { block.classList.remove('invalid', 'overlap-warn'); });
+
+  blocks.forEach(function(block, i) {
+    var idx = i + 1;
+    var tsIns = block.querySelectorAll('.ts-in');
+    var startMs = srtToMs(tsIns[0].value);
+    var endMs   = srtToMs(tsIns[1].value);
+    var text    = block.querySelector('textarea').value.trim();
+    var bad = false;
+
+    if (isNaN(startMs) || isNaN(endMs)) {
+      errors.push('Line ' + idx + ': invalid timestamp format');
+      bad = true;
+    } else {
+      if (!text) { errors.push('Line ' + idx + ': empty text — delete this segment instead'); bad = true; }
+      if (endMs <= startMs) { errors.push('Line ' + idx + ': end time must be after start time'); bad = true; }
+      if (prevEnd !== null && startMs < prevEnd) {
+        warnings.push('Line ' + idx + ' overlaps line ' + prevIdx + ' by ' + (prevEnd - startMs) + 'ms');
+        block.classList.add('overlap-warn');
+      }
+      prevEnd = endMs; prevIdx = idx;
+    }
+
+    if (bad) {
+      block.classList.add('invalid');
+      if (!firstBadBlock) firstBadBlock = block;
+    }
+  });
+
+  var banner = document.getElementById('validation-banner');
+  if (errors.length) {
+    e.preventDefault();
+    banner.style.display = 'block';
+    banner.innerHTML = '<strong>Fix these before saving:</strong><ul>' +
+      errors.map(function(m) { return '<li>' + m + '</li>'; }).join('') + '</ul>';
+    if (firstBadBlock) firstBadBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  banner.style.display = 'none';
+
+  if (warnings.length) {
+    var proceed = confirm(
+      warnings.length + ' overlapping segment(s) found:\n\n' + warnings.join('\n') + '\n\nSave anyway?'
+    );
+    if (!proceed) { e.preventDefault(); }
+  }
 });
 {% endif %}
 </script>

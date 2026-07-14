@@ -101,11 +101,48 @@ class LookupResult:
     source: str
     synced: list[TimestampEntry] | None = None
     plain: str | None = None
+    duration_s: Optional[float] = None  # duration of the matched track, per the lyrics source
+
+
+# ---------------------------------------------------------------------------
+# Duration cross-check — catches "found lyrics for the wrong track/version"
+# (radio edit vs album version, live version, wrong song entirely, etc.)
+# ---------------------------------------------------------------------------
+
+def _classify_duration_mismatch(yt_duration_s: Optional[float], source_duration_s: Optional[float]) -> Optional[str]:
+    if not yt_duration_s or not source_duration_s:
+        return None
+    diff = abs(yt_duration_s - source_duration_s)
+    if diff <= 3:
+        return None
+    if diff <= 10:
+        return "low"
+    if diff <= 30:
+        return "medium"
+    return "high"
 
 
 # ---------------------------------------------------------------------------
 # Source 1 & 3: lrclib.net
 # ---------------------------------------------------------------------------
+
+def _pick_best_hit(hits: list[dict], target_duration_s: Optional[float]) -> Optional[dict]:
+    """lrclib's search endpoint can return several versions of a song (radio edit,
+    album version, remix, live...). Blindly taking the first hit risks matching the
+    wrong one. Prefer the hit whose duration is closest to the source video's, and
+    break close ties in favor of a hit that actually has synced lyrics."""
+    if not hits:
+        return None
+    if not target_duration_s:
+        return hits[0]
+
+    def score(hit: dict) -> tuple:
+        diff = abs((hit.get("duration") or 0) - target_duration_s)
+        has_synced = 0 if hit.get("syncedLyrics") else 1
+        return (diff, has_synced)
+
+    return min(hits, key=score)
+
 
 async def _lrclib_lookup(client: httpx.AsyncClient, song: SongResult) -> Optional[LookupResult]:
     """
@@ -134,8 +171,7 @@ async def _lrclib_lookup(client: httpx.AsyncClient, song: SongResult) -> Optiona
             resp = await client.get("https://lrclib.net/api/search", params=params)
             if resp.status_code == 200:
                 hits = resp.json()
-                if hits:
-                    data = hits[0]
+                data = _pick_best_hit(hits, song.duration_s)
         except Exception as exc:
             logger.debug(f"lrclib error: {exc}")
             return None
@@ -156,7 +192,7 @@ async def _lrclib_lookup(client: httpx.AsyncClient, song: SongResult) -> Optiona
     if not synced and not plain:
         return None
 
-    return LookupResult(source="lrclib", synced=synced, plain=plain)
+    return LookupResult(source="lrclib", synced=synced, plain=plain, duration_s=data.get("duration"))
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +237,7 @@ async def _musixmatch_lookup(client: httpx.AsyncClient, song: SongResult) -> Opt
         track = track_list[0]["track"]
         track_id = int(track["track_id"])
         song.musixmatch_track_id = track_id
+        duration_s = track.get("track_length")
 
         synced = None
         plain = None
@@ -214,7 +251,7 @@ async def _musixmatch_lookup(client: httpx.AsyncClient, song: SongResult) -> Opt
         if not synced and not plain:
             return None
 
-        return LookupResult(source="musixmatch", synced=synced, plain=plain)
+        return LookupResult(source="musixmatch", synced=synced, plain=plain, duration_s=duration_s)
 
     except Exception as exc:
         logger.debug(f"Musixmatch error: {exc}")
@@ -291,6 +328,17 @@ async def _genius_lookup(client: httpx.AsyncClient, song: SongResult) -> Optiona
 # Waterfall
 # ---------------------------------------------------------------------------
 
+def _apply_duration_check(song: SongResult, result: LookupResult) -> None:
+    song.lyrics_source_duration_s = result.duration_s
+    song.duration_mismatch = _classify_duration_mismatch(song.duration_s, result.duration_s)
+    if song.duration_mismatch:
+        logger.warning(
+            f"[stage2] duration mismatch ({song.duration_mismatch}): "
+            f"YouTube {song.duration_s:.0f}s vs {result.source} {result.duration_s:.0f}s "
+            f"— review needed [{song.video_id}]"
+        )
+
+
 def _apply_synced(song: SongResult, result: LookupResult) -> None:
     song.lyrics_status = LyricsStatus.SYNCED
     song.lyrics_source = result.source
@@ -298,6 +346,7 @@ def _apply_synced(song: SongResult, result: LookupResult) -> None:
     song.timestamps_available = True
     song.lyrics = "\n".join(e.text for e in result.synced)
     song.routing = LyricsRoute.SYNCED_CONVERT
+    _apply_duration_check(song, result)
     logger.info(
         f"[stage2] synced ({len(result.synced)} lines) via {result.source} "
         f"→ direct SRT  [{song.video_id}]"
@@ -310,6 +359,7 @@ def _apply_plain(song: SongResult, result: LookupResult) -> None:
     song.lyrics = result.plain
     song.timestamps_available = False
     song.routing = LyricsRoute.FORCED_ALIGN
+    _apply_duration_check(song, result)
     logger.info(
         f"[stage2] plain lyrics via {result.source} "
         f"-> forced alignment  [{song.video_id}]"

@@ -91,6 +91,11 @@
           {% else %}
             <span style="color:var(--muted);">—</span>
           {% endif %}
+          {% if song.duration_mismatch %}
+            <span class="badge badge-dur-{{ song.duration_mismatch }}" title="YouTube duration doesn't match the lyrics source's track — may be the wrong song/version">
+              ⚠ {{ song.duration_mismatch }} dur
+            </span>
+          {% endif %}
         </td>
         <td class="cell-center">
           <span class="badge badge-{{ song._s2 }}">{{ song._s2 if song._s2 != 'na' else '—' }}</span>
@@ -105,6 +110,8 @@
             {% endif %}
             {% if song.stage3_done %}
               <a href="/review/{{ song.video_id }}?stage=3" class="btn btn-ghost btn-sm">SRT timing</a>
+            {% elif song.stage2_done and song.routing == 'forced_align' %}
+              <a href="/align/{{ song.video_id }}" class="btn btn-primary btn-sm">Align lyrics</a>
             {% endif %}
           </div>
         </td>

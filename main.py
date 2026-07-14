@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 def _print_summary(songs: list) -> None:
-    width = 88
+    width = 98
     logger.info("=" * width)
-    logger.info(f"{'VIDEO ID':<14} {'TITLE':<26} {'SOURCE':<10} {'STATUS':<10} {'ROUTING':<16} {'SRT'}")
+    logger.info(f"{'VIDEO ID':<14} {'TITLE':<26} {'SOURCE':<10} {'STATUS':<10} {'ROUTING':<16} {'SRT':<8} {'DUR CHECK'}")
     logger.info("-" * width)
     for s in songs:
         title = (s.title or "")[:24]
@@ -35,12 +35,14 @@ def _print_summary(songs: list) -> None:
         status = s.lyrics_status.value if s.lyrics_status else "-"
         route = s.routing.value if s.routing else "-"
         srt = "en.srt" if s.stage3_done else "-"
-        logger.info(f"{s.video_id:<14} {title:<26} {source:<10} {status:<10} {route:<16} {srt}")
+        dur = f"⚠ {s.duration_mismatch}" if s.duration_mismatch else "ok"
+        logger.info(f"{s.video_id:<14} {title:<26} {source:<10} {status:<10} {route:<16} {srt:<8} {dur}")
     logger.info("=" * width)
 
     sources: dict[str, int] = {}
     statuses: dict[str, int] = {}
     routes: dict[str, int] = {}
+    mismatches: dict[str, int] = {}
     for s in songs:
         k = s.lyrics_source or "none"
         sources[k] = sources.get(k, 0) + 1
@@ -48,12 +50,16 @@ def _print_summary(songs: list) -> None:
         statuses[k] = statuses.get(k, 0) + 1
         k = s.routing.value if s.routing else "none"
         routes[k] = routes.get(k, 0) + 1
+        if s.duration_mismatch:
+            mismatches[s.duration_mismatch] = mismatches.get(s.duration_mismatch, 0) + 1
 
     logger.info(f"Sources:  {sources}")
     logger.info(f"Status:   {statuses}")
     logger.info(f"Routing:  {routes}")
     srt_done = sum(1 for s in songs if s.stage3_done)
     logger.info(f"SRT files written: {srt_done}/{len(songs)}")
+    if mismatches:
+        logger.warning(f"Duration mismatches (review needed): {mismatches}")
 
 
 async def run(urls_file: Path, stage: int) -> None:
