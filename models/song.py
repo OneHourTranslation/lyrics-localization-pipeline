@@ -48,3 +48,10 @@ class SongResult(BaseModel):
     rejected_sources: list[str] = []
     review: dict[str, str] = {}
     error: Optional[str] = None
+
+    @property
+    def cleared_for_translation(self) -> bool:
+        """Per the PRD validation model: lyrics (stage2) and timestamps (stage3)
+        must each be human `approved` or `fixed` before translation runs."""
+        approved = {"approved", "fixed"}
+        return self.review.get("stage2") in approved and self.review.get("stage3") in approved

@@ -18,4 +18,4 @@ lyricsgenius>=3.0.0
 # deepgram-sdk>=3.0.0
 
 # Stage 5 (translation) — install separately when needed:
-# deepl>=1.18.0
+# blend-sdk (TBD — submits via BLEND, which integrates with EasyTranslate for LLM translation + QE)

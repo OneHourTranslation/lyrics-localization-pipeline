@@ -9,9 +9,9 @@ class Settings(BaseSettings):
     musixmatch_api_key: str = ""
     genius_api_key: str = ""
 
-    # Stage 4 + 5
+    # Stage 4 + 6
     deepgram_api_key: str = ""
-    deepl_api_key: str = ""
+    blend_api_key: str = ""  # BLEND platform submission (integrates with EasyTranslate for LLM translation + QE)
 
     output_dir: Path = Path("output")
     audio_quality: str = "128"

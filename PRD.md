@@ -148,15 +148,17 @@ Uses Aeneas to align plain lyrics text against the audio and generate timestamps
 ### Stage 5 — Translation *(not yet built)*
 **Input:** `en.srt`  
 **Output:** One draft translated SRT per target language  
-**Validation required:** Yes — machine translation handles literal meaning but loses rhyme, meter, idiom, and cultural references. All translations need native-speaker review.
+**Validation required:** Yes — targeted, not blanket. EasyTranslate's quality estimation (QE) flags specific lines as uncertain; only those need human post-editing before proceeding, not the whole file.
 
-- Translates each subtitle line via DeepL API
+- Submitted through BLEND (our platform), which integrates with EasyTranslate
+- EasyTranslate runs LLM translation + QE per line, returning the translation plus which lines QE flagged as needing review
+- Flagged lines are assigned to a human post-editor (PE) on our side; unflagged lines are treated as translation-complete
 - Preserves subtitle boundaries (does not merge or split lines)
 - Target languages: TBD (6 languages to be confirmed)
 
-**What to review:** Each translated SRT should be reviewed by a native speaker or professional translator. Key concerns: lines that are too long to read in the allotted time, idioms that translated literally but sound unnatural, culturally specific references. Corrections are made directly in the translated SRT file.
+**What to review:** Only the lines EasyTranslate's QE flags — a human post-editor corrects those against the English source before the song can be marked reviewed. Key concerns: lines that are too long to read in the allotted time, idioms that translated literally but sound unnatural, culturally specific references.
 
-**Failure modes:** DeepL splits a multi-part phrase across subtitle boundaries, translating each fragment out of context. Some languages produce significantly longer text than English, causing subtitles to overflow their display window.
+**Failure modes:** QE under-flags a bad line (false negative — passes through unreviewed), a multi-part phrase split across subtitle boundaries gets translated fragment-by-fragment out of context, some languages produce significantly longer text than English causing subtitles to overflow their display window.
 
 ---
 
@@ -231,7 +233,7 @@ Configured via `.env` file. All lyrics source keys are optional — the pipeline
 | `GENIUS_API_KEY` | Optional | Genius plain lyrics fallback |
 | `MUSIXMATCH_API_KEY` | Optional | Synced + plain lyrics (paid plan) |
 | `DEEPGRAM_API_KEY` | Optional | ASR on isolated vocals (stage 4) |
-| `DEEPL_API_KEY` | Optional | Translation into 6 languages (stage 5) |
+| `BLEND_API_KEY` | Optional | Translation submission via BLEND / EasyTranslate (stage 5) |
 
 lrclib.net requires no key and is always tried first.
 
@@ -302,7 +304,7 @@ Table of all songs with colour-coded status badges per stage (pending / approved
 | Forced alignment | Aeneas *(pending)* |
 | Vocal separation | Demucs *(pending)* |
 | ASR | Deepgram *(pending)* |
-| Translation | DeepL *(pending)* |
+| Translation | BLEND / EasyTranslate (LLM + QE) *(pending)* |
 | Data models | Pydantic v2 |
 | Config | pydantic-settings + python-dotenv |
 | Review web server | FastAPI + Jinja2 + uvicorn |
@@ -318,7 +320,7 @@ Table of all songs with colour-coded status badges per stage (pending / approved
 | Stage 3a — English SRT (synced) | ✅ Complete |
 | Stage 3b — Forced alignment (Aeneas) | ⬜ Not started |
 | Stage 4 — ASR (Demucs + Deepgram) | ⬜ Not started |
-| Stage 5 — Translation (DeepL) | ⬜ Not started |
+| Stage 5 — Translation (BLEND / EasyTranslate) | ⬜ Not started |
 | Stage 6 — Localized SRT output | ⬜ Not started |
 | Review web tool + CLI (`review.py`) | ✅ Complete |
 

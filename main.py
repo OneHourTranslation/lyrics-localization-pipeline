@@ -6,6 +6,7 @@ Usage:
   python main.py urls.txt --stage 1    # download audio only
   python main.py urls.txt --stage 2    # re-run lyrics lookup from existing JSONs
   python main.py urls.txt --stage 3    # re-run SRT generation from existing JSONs
+  python main.py urls.txt --stage 5    # check review gate / run translation on cleared songs
   python main.py urls.txt --verbose    # DEBUG logging
 """
 import argparse
@@ -19,6 +20,7 @@ from models.song import LyricsRoute, LyricsStatus
 from pipeline.stage1_extract import load_all_results, run_stage1
 from pipeline.stage2_lyrics import run_stage2
 from pipeline.stage3_srt import run_stage3
+from pipeline.stage5_translate import run_stage5
 from utils.logging_setup import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -92,6 +94,23 @@ async def run(urls_file: Path, stage: int) -> None:
         songs = await run_stage3(ready)
         _print_summary(songs)
 
+    elif stage == 5:
+        all_results = load_all_results()
+        ready = [s for s in all_results if s.stage3_done and not s.error]
+        cleared = [s for s in ready if s.cleared_for_translation]
+        blocked = [s for s in ready if not s.cleared_for_translation]
+        logger.info(f"Stage 5 review gate: {len(cleared)}/{len(ready)} songs cleared for translation")
+        for s in blocked:
+            logger.warning(
+                f"[{s.video_id}] blocked — lyrics/timestamps not yet approved "
+                f"(stage2={s.review.get('stage2', 'pending')}, stage3={s.review.get('stage3', 'pending')}). "
+                f"Approve both in the review tool before translation can run."
+            )
+        if not cleared:
+            logger.error("No songs cleared for translation. Approve lyrics + timestamps in the review tool first.")
+            sys.exit(1)
+        await run_stage5(cleared)
+
     else:  # full pipeline
         songs = await run_stage1(urls)
         logger.info(f"Stage 1 complete: {sum(s.stage1_done for s in songs)}/{len(songs)} succeeded")
@@ -108,8 +127,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Lyrics pipeline — stages 1-3")
     parser.add_argument("urls_file", type=Path, help="Text file with one YouTube URL per line")
     parser.add_argument(
-        "--stage", type=int, choices=[1, 2, 3], default=0,
-        help="Run a single stage only (0 = run all implemented stages)",
+        "--stage", type=int, choices=[1, 2, 3, 5], default=0,
+        help="Run a single stage only (0 = run all implemented stages). "
+             "Stage 5 checks the review gate and reports which songs are cleared for translation.",
     )
     parser.add_argument("--verbose", action="store_true", help="Enable DEBUG logging")
     args = parser.parse_args()

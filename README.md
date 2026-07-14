@@ -13,8 +13,8 @@ Automated pipeline that takes YouTube music video URLs and produces timestamped 
 | 3 — English SRT | Converts synced timestamps to SRT format |
 | 3b — Forced alignment | *(pending)* Aligns plain lyrics to audio using Aeneas |
 | 4 — ASR fallback | *(pending)* Vocal separation + speech recognition via Demucs + Deepgram |
-| 5 — Translation | *(pending)* Translates English SRT to target languages via DeepL |
-| Review | Browser tool to validate and fix output at each stage |
+| **Human review (gate)** | **Required checkpoint.** Lyrics and timestamps must be approved (or fixed and approved) in the browser review tool — translation cannot start on a song until both are cleared |
+| 5 — Translation | *(pending)* Submitted via BLEND, which integrates with EasyTranslate for LLM translation + quality estimation (QE); lines QE flags for review are assigned to a human post-editor (PE) on our side |
 
 ---
 
@@ -60,7 +60,7 @@ cp .env.example .env
 | `GENIUS_API_KEY` | [genius.com/api-clients](https://genius.com/api-clients) — free | Optional (plain lyrics fallback) |
 | `MUSIXMATCH_API_KEY` | musixmatch.com — paid plan | Optional (synced lyrics) |
 | `DEEPGRAM_API_KEY` | deepgram.com | Optional (ASR stage, not yet built) |
-| `DEEPL_API_KEY` | deepl.com | Optional (translation stage, not yet built) |
+| `BLEND_API_KEY` | internal — BLEND platform | Optional (translation stage, not yet built) |
 
 lrclib.net is always tried first and needs no key.
 
@@ -84,6 +84,7 @@ python main.py urls.txt
 python main.py urls.txt --stage 1   # audio only
 python main.py urls.txt --stage 2   # lyrics only (requires stage 1 output)
 python main.py urls.txt --stage 3   # SRT only (requires stage 2 output)
+python main.py urls.txt --stage 5   # review-gate check — reports which songs are cleared for translation
 
 # Verbose logging
 python main.py urls.txt --verbose
